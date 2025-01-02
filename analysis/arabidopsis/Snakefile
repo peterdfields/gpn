@@ -144,13 +144,28 @@ rule rename_reference:
     output:
         "output/genome.fa.gz",
     run:
-        genome = load_fasta(input[0])
+        from Bio import SeqIO
+        import gzip
+        
+        # Load mapping file first
         id_mapping = pd.read_csv(
-            input[1], sep="\t", header=None, index_col=0, squeeze=True)
-        for chrom in genome.keys():
-            genome[chrom].id = id_mapping[genome[chrom].id]
-        save_fasta(output[0], genome)
-
+            input[1], 
+            sep="\t", 
+            header=None, 
+            names=['old_id', 'new_id']
+        ).set_index('old_id')['new_id']
+        
+        # Read and process records directly
+        records = []
+        with gzip.open(input[0], "rt") as handle:
+            for record in SeqIO.parse(handle, "fasta"):
+                if record.id in id_mapping.index:
+                    record.id = str(id_mapping[record.id])
+                records.append(record)
+        
+        # Write processed records
+        with gzip.open(output[0], "wt") as handle:
+            SeqIO.write(records, handle, "fasta")
 
 rule download_annotation:
     output:
@@ -927,8 +942,8 @@ rule run_vep_embeddings:
     shell:
         """
         python -m gpn.ss.run_vep_embeddings {input} {WINDOW_SIZE} {wildcards.model} {output} \
-        --per-device-batch-size 4000 --is-file \
-        --dataloader-num-workers {threads}
+        --per_device_batch_size 1000 --is_file \
+        --dataloader_num_workers {threads}
         """
 
 
